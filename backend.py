@@ -1,4 +1,4 @@
-from flask import Flask, request, jsonify
+from flask import Flask, request, jsonify, redirect
 import requests
 from flask_cors import CORS
 import os
@@ -31,6 +31,11 @@ headers = {
     'x-rapidapi-key': RAPIDAPI_KEY,
     'x-rapidapi-host': RAPIDAPI_HOST
 }
+
+# Маршрут для корневого пути
+@app.route('/')
+def home():
+    return "Welcome to Travel Helper! Use the /search-flights endpoint to find flights."
 
 # Маршрут для поиска авиабилетов
 @app.route('/search-flights', methods=['GET'])
