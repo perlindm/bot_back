@@ -1,9 +1,13 @@
-from flask import Flask, request, jsonify, redirect
+from flask import Flask, request, jsonify
 import requests
 from flask_cors import CORS
 import os
 from dotenv import load_dotenv
 import logging
+from flask_cors import CORS
+
+app = Flask(__name__)
+CORS(app)  # Разрешаем CORS для всех доменов
 
 # Загружаем переменные окружения из файла .env
 load_dotenv()
@@ -31,11 +35,6 @@ headers = {
     'x-rapidapi-key': RAPIDAPI_KEY,
     'x-rapidapi-host': RAPIDAPI_HOST
 }
-
-# Маршрут для корневого пути
-@app.route('/')
-def home():
-    return "Welcome to Travelink! Use the /search-flights endpoint to find flights."
 
 # Маршрут для поиска авиабилетов
 @app.route('/search-flights', methods=['GET'])
