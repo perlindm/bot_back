@@ -87,3 +87,53 @@ def search_flights():
 # Запуск приложения
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=int(os.getenv("PORT", 5000)))
+    @app.route('/search-flights', methods=['GET'])
+def search_flights():
+    try:
+        # Получаем параметры из запроса
+        origin = request.args.get('origin')
+        destination = request.args.get('destination')
+        date = request.args.get('date')
+
+        # Проверяем, что все параметры указаны
+        if not origin or not destination or not date:
+            return jsonify({"error": "Необходимо указать origin, destination и date"}), 400
+
+        # Проверяем формат IATA-кодов
+        if len(origin) != 3 or len(destination) != 3:
+            return jsonify({"error": "Неверный формат origin или destination. Используйте трехбуквенные IATA-коды."}), 400
+
+        # Формируем параметры запроса
+        querystring = {
+            "origin": origin,
+            "destination": destination,
+            "date": date,
+            "adults": "1",
+            "currency": "USD"
+        }
+
+        # Логируем запрос
+        logging.debug(f"Параметры запроса: origin={origin}, destination={destination}, date={date}")
+
+        # Отправляем запрос к Skyscanner API
+        response = requests.get(BASE_URL, headers=headers, params=querystring)
+        data = response.json()
+
+        # Логируем ответ от Skyscanner API
+        logging.debug(f"Ответ от Skyscanner API: {response.status_code}, {data}")
+
+        # Проверяем статус ответа
+        if response.status_code == 200 and "flights" in data:
+            return jsonify(data)
+        elif response.status_code == 422:
+            error_message = data.get("message", "Ошибка в параметрах запроса")
+            logging.error(f"Ошибка Skyscanner API: {response.status_code}, {error_message}")
+            return jsonify({"error": error_message}), 422
+        else:
+            error_message = data.get("message", "Не удалось получить данные")
+            logging.error(f"Ошибка Skyscanner API: {response.status_code}, {error_message}")
+            return jsonify({"error": error_message}), response.status_code
+
+    except Exception as e:
+        logging.error(f"Произошла ошибка: {str(e)}")
+        return jsonify({"error": "Внутренняя ошибка сервера"}), 500
