@@ -4,7 +4,6 @@ from flask_cors import CORS
 import os
 from dotenv import load_dotenv
 import logging
-import sys
 from datetime import datetime
 
 # Загружаем переменные окружения
@@ -17,19 +16,36 @@ logging.basicConfig(level=logging.INFO)
 app = Flask(__name__)
 CORS(app)
 
-# Получаем API-ключ
+# API-ключи
 RAPIDAPI_KEY = os.getenv("RAPIDAPI_KEY")
 if not RAPIDAPI_KEY:
     logging.error("API-ключ не найден. Установите RAPIDAPI_KEY в .env")
-    sys.exit(1)
+    exit(1)
 
-RAPIDAPI_HOST = os.getenv("RAPIDAPI_HOST", "skyscanner89.p.rapidapi.com")
-BASE_URL = f"https://{RAPIDAPI_HOST}/flights/one-way/list"
+RAPIDAPI_HOST = "skyscanner89.p.rapidapi.com"
+FLIGHTS_URL = f"https://{RAPIDAPI_HOST}/flights/one-way/list"
+IATA_URL = f"https://{RAPIDAPI_HOST}/airports/auto-complete"
 
-headers = {
-    'x-rapidapi-key': RAPIDAPI_KEY,
-    'x-rapidapi-host': RAPIDAPI_HOST
+HEADERS = {
+    "x-rapidapi-key": RAPIDAPI_KEY,
+    "x-rapidapi-host": RAPIDAPI_HOST
 }
+
+# 🔹 Функция конвертации города в IATA-код
+def get_iata_code(city):
+    params = {"query": city}
+    response = requests.get(IATA_URL, headers=HEADERS, params=params)
+    
+    if response.status_code == 200:
+        data = response.json()
+        if data and isinstance(data, list) and len(data) > 0:
+            return data[0]["iata"]  # Берём первый аэропорт
+        else:
+            logging.warning(f"Город '{city}' не найден в базе аэропортов.")
+            return None
+    else:
+        logging.error(f"Ошибка API при получении IATA-кода: {response.text}")
+        return None
 
 @app.route('/')
 def home():
@@ -43,23 +59,26 @@ def health():
 def search_flights():
     try:
         # Получаем параметры запроса
-        origin = request.args.get('origin', "").upper()
-        destination = request.args.get('destination', "").upper()
-        date = request.args.get('date', "")
+        city_from = request.args.get('origin', "").strip()
+        city_to = request.args.get('destination', "").strip()
+        date = request.args.get('date', "").strip()
 
         # Проверяем обязательные параметры
-        if not origin or not destination or not date:
+        if not city_from or not city_to or not date:
             return jsonify({"error": "Необходимо указать origin, destination и date"}), 400
 
-        # Проверяем формат IATA-кодов
-        if len(origin) != 3 or len(destination) != 3:
-            return jsonify({"error": "Используйте трехбуквенные IATA-коды"}), 400
+        # Конвертация городов в IATA-коды
+        origin = get_iata_code(city_from) if len(city_from) > 3 else city_from.upper()
+        destination = get_iata_code(city_to) if len(city_to) > 3 else city_to.upper()
+
+        if not origin or not destination:
+            return jsonify({"error": "Не удалось определить IATA-коды для городов"}), 400
 
         # Проверяем формат даты
         try:
             datetime.strptime(date, "%Y-%m-%d")
         except ValueError:
-            return jsonify({"error": "Неверный формат даты. Используйте формат YYYY-MM-DD (например, 2023-12-01)."}), 400
+            return jsonify({"error": "Неверный формат даты. Используйте YYYY-MM-DD (например, 2023-12-01)."}), 400
 
         # Логируем запрос
         logging.info(f"Поиск билетов: {origin} → {destination} ({date})")
@@ -74,7 +93,7 @@ def search_flights():
         }
 
         # Отправляем запрос к Skyscanner API
-        response = requests.get(BASE_URL, headers=headers, params=querystring)
+        response = requests.get(FLIGHTS_URL, headers=HEADERS, params=querystring)
 
         # Проверяем статус ответа
         if response.status_code == 429:  # Too Many Requests
@@ -83,14 +102,15 @@ def search_flights():
 
         if response.ok:
             data = response.json()
-            if "flights" not in data:
+            if "flights" in data:
+                return jsonify(data)
+            else:
                 logging.error(f"API вернул ошибку: {data}")
                 return jsonify({"error": "Ошибка в данных API"}), 500
-            return jsonify(data)
         else:
             error_data = response.json()
             error_message = error_data.get("message", "Ошибка API")
-            logging.error(f"Ошибка API: {response.status_code}, {error_message}, Заголовки: {headers}, Параметры: {querystring}")
+            logging.error(f"Ошибка API: {response.status_code}, {error_message}, Заголовки: {HEADERS}, Параметры: {querystring}")
             return jsonify({"error": error_message}), response.status_code
 
     except Exception as e:
