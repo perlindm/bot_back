@@ -22,30 +22,13 @@ if not RAPIDAPI_KEY:
     logging.error("API-ключ не найден. Установите RAPIDAPI_KEY в .env")
     exit(1)
 
-RAPIDAPI_HOST = "skyscanner89.p.rapidapi.com"
-FLIGHTS_URL = f"https://{RAPIDAPI_HOST}/flights/one-way/list"
-IATA_URL = f"https://{RAPIDAPI_HOST}/airports/auto-complete"
+RAPIDAPI_HOST = os.getenv("RAPIDAPI_HOST", "google-flights2.p.rapidapi.com")
+BASE_URL = f"https://{RAPIDAPI_HOST}/search"
 
 HEADERS = {
     "x-rapidapi-key": RAPIDAPI_KEY,
     "x-rapidapi-host": RAPIDAPI_HOST
 }
-
-# 🔹 Функция конвертации города в IATA-код
-def get_iata_code(city):
-    params = {"query": city}
-    response = requests.get(IATA_URL, headers=HEADERS, params=params)
-    
-    if response.status_code == 200:
-        data = response.json()
-        if data and isinstance(data, list) and len(data) > 0:
-            return data[0]["iata"]  # Берём первый аэропорт
-        else:
-            logging.warning(f"Город '{city}' не найден в базе аэропортов.")
-            return None
-    else:
-        logging.error(f"Ошибка API при получении IATA-кода: {response.text}")
-        return None
 
 @app.route('/')
 def home():
@@ -67,13 +50,6 @@ def search_flights():
         if not city_from or not city_to or not date:
             return jsonify({"error": "Необходимо указать origin, destination и date"}), 400
 
-        # Конвертация городов в IATA-коды
-        origin = get_iata_code(city_from) if len(city_from) > 3 else city_from.upper()
-        destination = get_iata_code(city_to) if len(city_to) > 3 else city_to.upper()
-
-        if not origin or not destination:
-            return jsonify({"error": "Не удалось определить IATA-коды для городов"}), 400
-
         # Проверяем формат даты
         try:
             datetime.strptime(date, "%Y-%m-%d")
@@ -81,19 +57,22 @@ def search_flights():
             return jsonify({"error": "Неверный формат даты. Используйте YYYY-MM-DD (например, 2023-12-01)."}), 400
 
         # Логируем запрос
-        logging.info(f"Поиск билетов: {origin} → {destination} ({date})")
+        logging.info(f"Поиск билетов: {city_from} → {city_to} ({date})")
 
         # Формируем параметры запроса
         querystring = {
-            "origin": origin,
-            "destination": destination,
+            "origin": city_from,
+            "destination": city_to,
             "date": date,
             "adults": "1",
             "currency": "USD"
         }
 
-        # Отправляем запрос к Skyscanner API
-        response = requests.get(FLIGHTS_URL, headers=HEADERS, params=querystring)
+        # Отправляем запрос к новому API
+        response = requests.get(BASE_URL, headers=HEADERS, params=querystring)
+
+        # Логируем ответ от API
+        logging.debug(f"Ответ от API: {response.status_code}, {response.text}")
 
         # Проверяем статус ответа
         if response.status_code == 429:  # Too Many Requests
