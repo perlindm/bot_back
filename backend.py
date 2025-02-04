@@ -2,7 +2,7 @@ from flask import Flask, request, jsonify
 import requests
 from flask_cors import CORS
 import os
-from dotenv import load_dotenv  # Для загрузки переменных из .env
+from dotenv import load_dotenv
 import logging
 
 # Загружаем переменные окружения из файла .env
@@ -82,4 +82,4 @@ def search_flights():
 
 # Запуск приложения
 if __name__ == "__main__":
-    app.run(debug=True)
+    app.run(host="0.0.0.0", port=int(os.getenv("PORT", 5000)))
