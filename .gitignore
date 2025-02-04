@@ -1,0 +1,6 @@
+.vercel
+
+# Local Netlify folder
+.netlify
+# .gitignore
+.env
