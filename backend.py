@@ -4,52 +4,60 @@ from flask_cors import CORS
 import os
 from dotenv import load_dotenv
 import logging
-from flask_cors import CORS
+import sys
+from datetime import datetime
 
-app = Flask(__name__)
-CORS(app)  # Разрешаем CORS для всех доменов
-
-# Загружаем переменные окружения из файла .env
+# Загружаем переменные окружения
 load_dotenv()
 
 # Настройка логирования
-logging.basicConfig(level=logging.DEBUG)
+logging.basicConfig(level=logging.INFO)  # INFO вместо DEBUG
 
-# Создаем экземпляр Flask
+# Создаем Flask
 app = Flask(__name__)
-CORS(app)  # Разрешаем CORS для всех доменов
+CORS(app)
 
-# Получаем переменные окружения
+# Получаем API-ключ
 RAPIDAPI_KEY = os.getenv("RAPIDAPI_KEY")
 if not RAPIDAPI_KEY:
-    logging.error("API-ключ не найден. Убедитесь, что переменная окружения RAPIDAPI_KEY установлена.")
-    raise ValueError("API-ключ не найден. Убедитесь, что переменная окружения RAPIDAPI_KEY установлена.")
+    logging.error("API-ключ не найден. Установите RAPIDAPI_KEY в .env")
+    sys.exit(1)
 
-RAPIDAPI_HOST = os.getenv("RAPIDAPI_HOST", "skyscanner89.p.rapidapi.com")  # Значение по умолчанию
-
-# Базовый URL для запросов к Skyscanner API
+RAPIDAPI_HOST = os.getenv("RAPIDAPI_HOST", "skyscanner89.p.rapidapi.com")
 BASE_URL = f"https://{RAPIDAPI_HOST}/flights/one-way/list"
 
-# Заголовки для запросов
 headers = {
     'x-rapidapi-key': RAPIDAPI_KEY,
     'x-rapidapi-host': RAPIDAPI_HOST
 }
 
-# Маршрут для поиска авиабилетов
+@app.route('/')
+def home():
+    return "Welcome to Travel Helper! Use /search-flights to find flights."
+
 @app.route('/search-flights', methods=['GET'])
 def search_flights():
     try:
-        # Получаем параметры из запроса
-        origin = request.args.get('origin')
-        destination = request.args.get('destination')
-        date = request.args.get('date')
+        # Получаем параметры запроса
+        origin = request.args.get('origin', "").upper()
+        destination = request.args.get('destination', "").upper()
+        date = request.args.get('date', "")
 
-        # Проверяем, что все параметры указаны
         if not origin or not destination or not date:
             return jsonify({"error": "Необходимо указать origin, destination и date"}), 400
 
-        # Формируем параметры запроса
+        if len(origin) != 3 or len(destination) != 3:
+            return jsonify({"error": "Используйте трехбуквенные IATA-коды"}), 400
+
+        try:
+            datetime.strptime(date, "%Y-%m-%d")
+        except ValueError:
+            return jsonify({"error": "Неверный формат даты (YYYY-MM-DD)"}), 400
+
+        # Логируем запрос
+        logging.info(f"Поиск билетов: {origin} → {destination} ({date})")
+
+        # Запрос в API
         querystring = {
             "origin": origin,
             "destination": destination,
@@ -58,82 +66,23 @@ def search_flights():
             "currency": "USD"
         }
 
-        # Логируем запрос
-        logging.debug(f"Параметры запроса: origin={origin}, destination={destination}, date={date}")
-
-        # Отправляем запрос к Skyscanner API
         response = requests.get(BASE_URL, headers=headers, params=querystring)
-        data = response.json()
 
-        # Логируем ответ от Skyscanner API
-        logging.debug(f"Ответ от Skyscanner API: {response.status_code}, {data}")
-
-        # Проверяем статус ответа
-        if response.status_code == 200 and "flights" in data:
+        # Проверка ответа API
+        if response.ok:
+            data = response.json()
+            if "flights" not in data:
+                logging.error(f"API вернул ошибку: {data}")
+                return jsonify({"error": "Ошибка в данных API"}), 500
             return jsonify(data)
-        elif response.status_code == 401:
-            logging.error("Недействительный API-ключ. Проверьте настройки переменных окружения.")
-            return jsonify({"error": "Недействительный API-ключ. Проверьте настройки."}), 401
+
         else:
-            error_message = data.get("message", "Не удалось получить данные")
-            logging.error(f"Ошибка Skyscanner API: {response.status_code}, {error_message}")
-            return jsonify({"error": error_message}), response.status_code
+            logging.error(f"Ошибка API: {response.status_code}, {response.text}")
+            return jsonify({"error": "Ошибка API"}), response.status_code
 
     except Exception as e:
-        logging.error(f"Произошла ошибка: {str(e)}")
+        logging.exception("Внутренняя ошибка сервера")
         return jsonify({"error": "Внутренняя ошибка сервера"}), 500
 
-
-# Запуск приложения
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=int(os.getenv("PORT", 5000)))
-    @app.route('/search-flights', methods=['GET'])
-def search_flights():
-    try:
-        # Получаем параметры из запроса
-        origin = request.args.get('origin')
-        destination = request.args.get('destination')
-        date = request.args.get('date')
-
-        # Проверяем, что все параметры указаны
-        if not origin or not destination or not date:
-            return jsonify({"error": "Необходимо указать origin, destination и date"}), 400
-
-        # Проверяем формат IATA-кодов
-        if len(origin) != 3 or len(destination) != 3:
-            return jsonify({"error": "Неверный формат origin или destination. Используйте трехбуквенные IATA-коды."}), 400
-
-        # Формируем параметры запроса
-        querystring = {
-            "origin": origin,
-            "destination": destination,
-            "date": date,
-            "adults": "1",
-            "currency": "USD"
-        }
-
-        # Логируем запрос
-        logging.debug(f"Параметры запроса: origin={origin}, destination={destination}, date={date}")
-
-        # Отправляем запрос к Skyscanner API
-        response = requests.get(BASE_URL, headers=headers, params=querystring)
-        data = response.json()
-
-        # Логируем ответ от Skyscanner API
-        logging.debug(f"Ответ от Skyscanner API: {response.status_code}, {data}")
-
-        # Проверяем статус ответа
-        if response.status_code == 200 and "flights" in data:
-            return jsonify(data)
-        elif response.status_code == 422:
-            error_message = data.get("message", "Ошибка в параметрах запроса")
-            logging.error(f"Ошибка Skyscanner API: {response.status_code}, {error_message}")
-            return jsonify({"error": error_message}), 422
-        else:
-            error_message = data.get("message", "Не удалось получить данные")
-            logging.error(f"Ошибка Skyscanner API: {response.status_code}, {error_message}")
-            return jsonify({"error": error_message}), response.status_code
-
-    except Exception as e:
-        logging.error(f"Произошла ошибка: {str(e)}")
-        return jsonify({"error": "Внутренняя ошибка сервера"}), 500
