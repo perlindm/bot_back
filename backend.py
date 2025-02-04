@@ -27,6 +27,7 @@ if not AMADEUS_API_KEY or not AMADEUS_API_SECRET:
 # Базовые URL для Amadeus API
 AUTH_URL = "https://test.api.amadeus.com/v1/security/oauth2/token"
 FLIGHTS_URL = "https://test.api.amadeus.com/v2/shopping/flight-offers"
+LOCATIONS_URL = "https://test.api.amadeus.com/v1/reference-data/locations"
 
 # 🔹 Функция для получения токена доступа
 def get_access_token():
@@ -51,7 +52,7 @@ def get_access_token():
 
 @app.route('/')
 def home():
-    return "Welcome to Travelink! Use /search-flights to find flights."
+    return "Welcome to Travel Helper! Use /search-flights to find flights."
 
 @app.route('/health', methods=['GET'])
 def health():
@@ -61,12 +62,12 @@ def health():
 def search_flights():
     try:
         # Получаем параметры запроса
-        city_from = request.args.get('origin', "").strip()
-        city_to = request.args.get('destination', "").strip()
+        origin = request.args.get('origin', "").strip()
+        destination = request.args.get('destination', "").strip()
         date = request.args.get('date', "").strip()
 
         # Проверяем обязательные параметры
-        if not city_from or not city_to or not date:
+        if not origin or not destination or not date:
             return jsonify({"error": "Необходимо указать origin, destination и date"}), 400
 
         # Проверяем формат даты
@@ -76,7 +77,7 @@ def search_flights():
             return jsonify({"error": "Неверный формат даты. Используйте YYYY-MM-DD (например, 2023-12-01)."}), 400
 
         # Логируем запрос
-        logging.info(f"Поиск билетов: {city_from} → {city_to} ({date})")
+        logging.info(f"Поиск билетов: {origin} → {destination} ({date})")
 
         # Получаем токен доступа
         access_token = get_access_token()
@@ -88,8 +89,8 @@ def search_flights():
             "Authorization": f"Bearer {access_token}"
         }
         querystring = {
-            "originLocationCode": city_from,
-            "destinationLocationCode": city_to,
+            "originLocationCode": origin,
+            "destinationLocationCode": destination,
             "departureDate": date,
             "adults": "1",
             "currencyCode": "USD",
@@ -110,6 +111,65 @@ def search_flights():
             else:
                 logging.error(f"API вернул пустой ответ: {data}")
                 return jsonify({"error": "Билеты не найдены"}), 404
+        else:
+            error_data = response.json()
+            error_message = error_data.get("errors", [{"detail": "Ошибка API"}])[0].get("detail", "Ошибка API")
+            logging.error(f"Ошибка API: {response.status_code}, {error_message}")
+            return jsonify({"error": error_message}), response.status_code
+
+    except Exception as e:
+        logging.exception("Внутренняя ошибка сервера")
+        return jsonify({"error": "Внутренняя ошибка сервера"}), 500
+
+@app.route('/search-locations', methods=['GET'])
+def search_locations():
+    try:
+        # Получаем параметры запроса
+        query = request.args.get('query', "").strip()
+
+        # Проверяем обязательные параметры
+        if not query:
+            return jsonify({"error": "Необходимо указать query"}), 400
+
+        # Логируем запрос
+        logging.info(f"Поиск локаций: {query}")
+
+        # Получаем токен доступа
+        access_token = get_access_token()
+        if not access_token:
+            return jsonify({"error": "Не удалось получить токен доступа"}), 500
+
+        # Формируем заголовки и параметры запроса
+        headers = {
+            "Authorization": f"Bearer {access_token}"
+        }
+        querystring = {
+            "keyword": query,
+            "subType": "CITY,AIRPORT"  # Ищем как города, так и аэропорты
+        }
+
+        # Отправляем запрос к Amadeus API
+        response = requests.get(LOCATIONS_URL, headers=headers, params=querystring)
+
+        # Логируем ответ от API
+        logging.debug(f"Ответ от API: {response.status_code}, {response.text}")
+
+        # Проверяем статус ответа
+        if response.ok:
+            data = response.json()
+            if "data" in data and len(data["data"]) > 0:
+                locations = [
+                    {
+                        "name": item.get("name"),
+                        "iataCode": item.get("iataCode"),
+                        "type": item.get("subType")
+                    }
+                    for item in data["data"]
+                ]
+                return jsonify(locations)
+            else:
+                logging.error(f"API вернул пустой ответ: {data}")
+                return jsonify({"error": "Локации не найдены"}), 404
         else:
             error_data = response.json()
             error_message = error_data.get("errors", [{"detail": "Ошибка API"}])[0].get("detail", "Ошибка API")
