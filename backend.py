@@ -35,7 +35,7 @@ headers = {
 # Маршрут для корневого пути
 @app.route('/')
 def home():
-    return "Welcome to Travel Helper! Use the /search-flights endpoint to find flights."
+    return "Welcome to Travelink! Use the /search-flights endpoint to find flights."
 
 # Маршрут для поиска авиабилетов
 @app.route('/search-flights', methods=['GET'])
