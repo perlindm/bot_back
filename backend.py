@@ -16,23 +16,42 @@ logging.basicConfig(level=logging.INFO)
 app = Flask(__name__)
 CORS(app)
 
-# API-ключи
-RAPIDAPI_KEY = os.getenv("RAPIDAPI_KEY")
-if not RAPIDAPI_KEY:
-    logging.error("API-ключ не найден. Установите RAPIDAPI_KEY в .env")
+# Amadeus API Credentials
+AMADEUS_API_KEY = os.getenv("AMADEUS_API_KEY")
+AMADEUS_API_SECRET = os.getenv("AMADEUS_API_SECRET")
+
+if not AMADEUS_API_KEY or not AMADEUS_API_SECRET:
+    logging.error("API-ключ или секрет не найдены. Установите AMADEUS_API_KEY и AMADEUS_API_SECRET в .env")
     exit(1)
 
-RAPIDAPI_HOST = os.getenv("RAPIDAPI_HOST", "google-flights2.p.rapidapi.com")
-BASE_URL = f"https://{RAPIDAPI_HOST}/search"
+# Базовые URL для Amadeus API
+AUTH_URL = "https://test.api.amadeus.com/v1/security/oauth2/token"
+FLIGHTS_URL = "https://test.api.amadeus.com/v2/shopping/flight-offers"
 
-HEADERS = {
-    "x-rapidapi-key": RAPIDAPI_KEY,
-    "x-rapidapi-host": RAPIDAPI_HOST
-}
+# 🔹 Функция для получения токена доступа
+def get_access_token():
+    try:
+        payload = {
+            "grant_type": "client_credentials",
+            "client_id": AMADEUS_API_KEY,
+            "client_secret": AMADEUS_API_SECRET
+        }
+        headers = {
+            "Content-Type": "application/x-www-form-urlencoded"
+        }
+        response = requests.post(AUTH_URL, data=payload, headers=headers)
+        if response.ok:
+            return response.json().get("access_token")
+        else:
+            logging.error(f"Ошибка при получении токена: {response.text}")
+            return None
+    except Exception as e:
+        logging.error(f"Ошибка при получении токена: {str(e)}")
+        return None
 
 @app.route('/')
 def home():
-    return "Welcome to Travel Helper! Use /search-flights to find flights."
+    return "Welcome to Travelink! Use /search-flights to find flights."
 
 @app.route('/health', methods=['GET'])
 def health():
@@ -59,37 +78,42 @@ def search_flights():
         # Логируем запрос
         logging.info(f"Поиск билетов: {city_from} → {city_to} ({date})")
 
-        # Формируем параметры запроса
+        # Получаем токен доступа
+        access_token = get_access_token()
+        if not access_token:
+            return jsonify({"error": "Не удалось получить токен доступа"}), 500
+
+        # Формируем заголовки и параметры запроса
+        headers = {
+            "Authorization": f"Bearer {access_token}"
+        }
         querystring = {
-            "origin": city_from,
-            "destination": city_to,
-            "date": date,
+            "originLocationCode": city_from,
+            "destinationLocationCode": city_to,
+            "departureDate": date,
             "adults": "1",
-            "currency": "USD"
+            "currencyCode": "USD",
+            "max": "10"  # Максимальное количество результатов
         }
 
-        # Отправляем запрос к новому API
-        response = requests.get(BASE_URL, headers=HEADERS, params=querystring)
+        # Отправляем запрос к Amadeus API
+        response = requests.get(FLIGHTS_URL, headers=headers, params=querystring)
 
         # Логируем ответ от API
         logging.debug(f"Ответ от API: {response.status_code}, {response.text}")
 
         # Проверяем статус ответа
-        if response.status_code == 429:  # Too Many Requests
-            logging.error("Превышен лимит запросов к API")
-            return jsonify({"error": "Превышен лимит запросов. Попробуйте позже."}), 429
-
         if response.ok:
             data = response.json()
-            if "flights" in data:
+            if "data" in data and len(data["data"]) > 0:
                 return jsonify(data)
             else:
-                logging.error(f"API вернул ошибку: {data}")
-                return jsonify({"error": "Ошибка в данных API"}), 500
+                logging.error(f"API вернул пустой ответ: {data}")
+                return jsonify({"error": "Билеты не найдены"}), 404
         else:
             error_data = response.json()
-            error_message = error_data.get("message", "Ошибка API")
-            logging.error(f"Ошибка API: {response.status_code}, {error_message}, Заголовки: {HEADERS}, Параметры: {querystring}")
+            error_message = error_data.get("errors", [{"detail": "Ошибка API"}])[0].get("detail", "Ошибка API")
+            logging.error(f"Ошибка API: {response.status_code}, {error_message}")
             return jsonify({"error": error_message}), response.status_code
 
     except Exception as e:
